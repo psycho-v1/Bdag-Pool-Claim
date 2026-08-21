@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BDAG Miner Claim</title>
+  <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+  <script src="./embed.js"></script>
+  <style>
+    :root {
+      --bg:#0f1419; --card:#1a2332; --text:#e7ecf3; --muted:#9aa8bc;
+      --acc:#3d8bfd; --ok:#3dd68c; --err:#ff6b6b; --warn:#f0b429; --border:#2a3548;
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:var(--text); }
+    .wrap { max-width: 560px; margin: 0 auto; padding: 1rem 1.1rem 2.5rem; }
+    h1 { font-size: 1.3rem; margin: 0 0 .25rem; }
+    .sub { color: var(--muted); font-size: .9rem; margin-bottom: 1rem; }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:1rem; margin-bottom:1rem; }
+    label { display:block; font-size:.82rem; color:var(--muted); margin:.55rem 0 .25rem; }
+    input, button {
+      width:100%; padding:.65rem .75rem; border-radius:8px; border:1px solid var(--border);
+      font: inherit; color: var(--text);
+    }
+    input { background:#121a26; }
+    button { border:none; background:var(--acc); color:#fff; font-weight:600; cursor:pointer; margin-top:.45rem; }
+    button.secondary { background:#2a3548; }
+    button:disabled { opacity:.45; cursor:not-allowed; }
+    .pill { display:inline-block; padding:.15rem .5rem; border-radius:999px; font-size:.78rem; background:#243044; margin:.15rem .25rem 0 0; }
+    .ok { color: var(--ok); } .err { color: var(--err); }
+    #log { white-space:pre-wrap; font-size:.82rem; color:var(--muted); max-height:220px; overflow:auto; }
+    .banner { background:#2a1f0a; border:1px solid #5c4a1e; color:#f0d78c; border-radius:10px; padding:.75rem; font-size:.85rem; margin-bottom:1rem; }
+    .check { display:flex; align-items:flex-start; gap:.5rem; margin:.4rem 0; font-size:.85rem; color:var(--muted); }
+    .check input { width:auto; margin-top:.2rem; }
+    a { color: var(--acc); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>BDAG Miner Claim</h1>
+    <p class="sub">Chain 1404 · Paste your pool vault address and claim</p>
+    <div class="banner">
+      Only use a vault address your pool published. We never ask for seed phrases.
+      Engineering RPC: rpc.blockdag.engineering — not bdagscan.
+      Operators use <a href="./index.html">the operator installer</a>.
+    </div>
+    <div class="card">
+      <button id="btnConnect" type="button">Connect wallet</button>
+      <p style="margin:.5rem 0 0">
+        <span id="walletPill" class="pill">Not connected</span>
+        <span id="chainPill" class="pill">—</span>
+      </p>
+    </div>
+    <div class="card">
+      <label>Vault address from your pool</label>
+      <input id="claimVault" placeholder="0x…" />
+      <div class="check"><input type="checkbox" id="ck1" /><span>I got this vault address from my pool’s official channel</span></div>
+      <div class="check"><input type="checkbox" id="ck2" /><span>I am on the official claim page (not a random copy)</span></div>
+      <button id="btnRefresh" class="secondary" type="button">Refresh my claimable</button>
+      <p style="margin:.6rem 0">
+        Vault balance: <strong id="cVaultBal">—</strong><br/>
+        Your claimable: <strong id="cMyClaim">—</strong>
+      </p>
+      <button id="btnClaim" type="button" disabled>Claim</button>
+    </div>
+    <div class="card"><div id="log"></div></div>
+  </div>
+  <script>
+    const CHAIN_ID = 1404n;
+    const COMMUNITY_RPCS = ["https://rpc.blockdag.engineering"];
+    const EXPLORERS = ["https://explorer.blockdag.engineering"];
+    let provider, signer, account;
+    const $ = (id) => document.getElementById(id);
+    const log = (m, cls) => { const d = document.createElement("div"); if (cls) d.className = cls; d.textContent = m; $("log").appendChild(d); };
+
+    async function ensureChain() {
+      let net = await provider.getNetwork();
+      if (net.chainId === CHAIN_ID) return;
+      try {
+        await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x57c" }] });
+      } catch {
+        await window.ethereum.request({
+          method: "wallet_addEthereumChain",
+          params: [{
+            chainId: "0x57c",
+            chainName: "BlockDAG Mainnet",
+            nativeCurrency: { name: "BDAG", symbol: "BDAG", decimals: 18 },
+            rpcUrls: COMMUNITY_RPCS,
+            blockExplorerUrls: EXPLORERS
+          }]
+        });
+      }
+      provider = new ethers.BrowserProvider(window.ethereum);
+      net = await provider.getNetwork();
+      if (net.chainId !== CHAIN_ID) throw new Error("Switch wallet to BlockDAG 1404");
+    }
+
+    async function connect() {
+      if (!window.ethereum) throw new Error("Install MetaMask in Chrome or Brave");
+      provider = new ethers.BrowserProvider(window.ethereum);
+      await provider.send("eth_requestAccounts", []);
+      await ensureChain();
+      signer = await provider.getSigner();
+      account = await signer.getAddress();
+      $("walletPill").textContent = account.slice(0, 6) + "…" + account.slice(-4);
+      const net = await provider.getNetwork();
+      $("chainPill").textContent = "Chain " + net.chainId.toString();
+      claimEnabled();
+      log("Connected " + account, "ok");
+    }
+
+    function claimEnabled() {
+      $("btnClaim").disabled = !($("ck1").checked && $("ck2").checked && signer);
+    }
+    $("ck1").onchange = claimEnabled;
+    $("ck2").onchange = claimEnabled;
+
+    $("btnConnect").onclick = () => connect().catch((e) => log(e.message || String(e), "err"));
+
+    $("btnRefresh").onclick = async () => {
+      try {
+        if (!provider) await connect();
+        const addr = ethers.getAddress($("claimVault").value.trim());
+        const c = new ethers.Contract(addr, window.VAULT_ABI, provider);
+        const bal = await c.vaultBalance();
+        $("cVaultBal").textContent = ethers.formatEther(bal) + " BDAG";
+        if (account) {
+          const q = await c.claimable(account);
+          $("cMyClaim").textContent = ethers.formatEther(q) + " BDAG";
+        }
+        log("Refreshed", "ok");
+      } catch (e) {
+        log(e.shortMessage || e.message || String(e), "err");
+      }
+    };
+
+    $("btnClaim").onclick = async () => {
+      try {
+        if (!$("ck1").checked || !$("ck2").checked) throw new Error("Confirm the security checkboxes");
+        if (!signer) await connect();
+        const addr = ethers.getAddress($("claimVault").value.trim());
+        const c = new ethers.Contract(addr, window.VAULT_ABI, signer);
+        log("Sending claim…");
+        const tx = await c.claim();
+        log("Tx: " + tx.hash);
+        await tx.wait();
+        log("Claim confirmed", "ok");
+        $("btnRefresh").click();
+      } catch (e) {
+        log(e.shortMessage || e.message || String(e), "err");
+      }
+    };
+
+    const q = new URLSearchParams(location.search).get("vault");
+    if (q) $("claimVault").value = q;
+  </script>
+</body>
+</html>
