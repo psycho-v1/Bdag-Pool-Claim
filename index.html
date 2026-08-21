@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BDAG Pool Claim Vault</title>
+  <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+  <script src="./embed.js"></script>
+  <style>
+    :root {
+      --bg:#0f1419; --card:#1a2332; --text:#e7ecf3; --muted:#9aa8bc;
+      --acc:#3d8bfd; --ok:#3dd68c; --err:#ff6b6b; --warn:#f0b429; --border:#2a3548;
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:var(--text); }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 1rem 1.1rem 2.5rem; }
+    h1 { font-size: 1.3rem; margin: 0 0 .25rem; }
+    .sub { color: var(--muted); font-size: .9rem; margin-bottom: 1rem; }
+    .tabs { display:flex; gap:.5rem; margin-bottom: 1rem; flex-wrap:wrap; }
+    .tabs button { flex:1; min-width: 120px; }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:1rem; margin-bottom:1rem; }
+    label { display:block; font-size:.82rem; color:var(--muted); margin:.55rem 0 .25rem; }
+    input, textarea, select, button {
+      width:100%; padding:.65rem .75rem; border-radius:8px; border:1px solid var(--border);
+      font: inherit; color: var(--text);
+    }
+    input, textarea, select { background:#121a26; }
+    textarea { min-height: 110px; font-family: ui-monospace, monospace; font-size:.85rem; }
+    button { border:none; background:var(--acc); color:#fff; font-weight:600; cursor:pointer; margin-top:.45rem; }
+    button.secondary { background:#2a3548; }
+    button.danger { background:#8b2e2e; }
+    button:disabled { opacity:.45; cursor:not-allowed; }
+    .pill { display:inline-block; padding:.15rem .5rem; border-radius:999px; font-size:.78rem; background:#243044; margin:.15rem .25rem 0 0; }
+    .ok { color: var(--ok); } .err { color: var(--err); } .warn { color: var(--warn); }
+    .steps { display:flex; flex-wrap:wrap; gap:.35rem; margin-bottom:.75rem; }
+    .step { padding:.25rem .55rem; border-radius:999px; background:#243044; font-size:.75rem; color:var(--muted); }
+    .step.on { background:#1e3a5f; color:#fff; }
+    .step.done { background:#1a3d2e; color:var(--ok); }
+    #log, #clog { white-space:pre-wrap; font-size:.82rem; color:var(--muted); max-height:220px; overflow:auto; }
+    table { width:100%; border-collapse:collapse; font-size:.82rem; }
+    th, td { text-align:left; padding:.35rem .25rem; border-bottom:1px solid var(--border); }
+    .row { display:flex; gap:.5rem; flex-wrap:wrap; }
+    .row > * { flex:1; min-width: 140px; }
+    .banner { background:#2a1f0a; border:1px solid #5c4a1e; color:#f0d78c; border-radius:10px; padding:.75rem; font-size:.85rem; margin-bottom:1rem; }
+    .hidden { display:none !important; }
+    .check { display:flex; align-items:flex-start; gap:.5rem; margin:.4rem 0; font-size:.85rem; color:var(--muted); }
+    .check input { width:auto; margin-top:.2rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>BDAG Pool Claim Vault</h1>
+    <p class="sub">Chain 1404 · Community RPC only · One vault per pool</p>
+
+    <div class="banner">
+      Security: Only use this official site and a vault address your pool published.
+      We never ask for seed phrases. Fake copies of this page may steal funds.
+      Community RPC only (rpc.east/west.bdag-us.org) — not bdagscan. Site: bdag-us.org
+    </div>
+
+    <div class="tabs">
+      <button id="tabOp" type="button">Operator installer</button>
+      <button id="tabClaim" class="secondary" type="button">Miner claim</button>
+    </div>
+
+    <!-- ========== OPERATOR ========== -->
+    <div id="panelOp">
+      <div class="card">
+        <div class="steps">
+          <span class="step on" data-s="1">1 Connect</span>
+          <span class="step" data-s="2">2 Deploy</span>
+          <span class="step" data-s="3">3 Fund</span>
+          <span class="step" data-s="4">4 Claimable</span>
+          <span class="step" data-s="5">5 Share</span>
+        </div>
+        <button id="btnConnect" type="button">Connect wallet</button>
+        <p style="margin:.5rem 0 0">
+          <span id="walletPill" class="pill">Not connected</span>
+          <span id="chainPill" class="pill">—</span>
+          <span id="gapPill" class="pill">gap —</span>
+          <span id="balPill" class="pill">bal —</span>
+        </p>
+      </div>
+
+      <div class="card" id="stepDeploy">
+        <strong>Deploy vault</strong>
+        <label>Initial operator (optional, 0x… or leave empty)</label>
+        <input id="initOp" placeholder="0x000…000 for none" />
+        <button id="btnDeploy" type="button" disabled>Deploy PoolPayoutVault</button>
+        <label>Or paste existing vault address</label>
+        <input id="vaultIn" placeholder="0x… existing vault" />
+        <button id="btnUseVault" class="secondary" type="button" disabled>Use this vault</button>
+        <p style="margin:.5rem 0 0">Active vault: <strong id="vaultShow">—</strong></p>
+      </div>
+
+      <div class="card" id="stepFund">
+        <strong>Fund vault</strong>
+        <p class="sub" style="margin:0 0 .5rem">Send BDAG to the vault address from MetaMask (to = vault).</p>
+        <div class="row">
+          <div>
+            <label>Amount (BDAG) to suggest</label>
+            <input id="fundAmt" placeholder="e.g. 100" />
+          </div>
+          <div>
+            <label>Vault balance</label>
+            <input id="vaultBal" readonly placeholder="—" />
+          </div>
+        </div>
+        <button id="btnRefreshVault" class="secondary" type="button" disabled>Refresh vault balance</button>
+        <button id="btnCopyVault" class="secondary" type="button" disabled>Copy vault address</button>
+      </div>
+
+      <div class="card" id="stepClaimable">
+        <strong>Set claimable (CSV)</strong>
+        <label>Min payout (BDAG) — rows below this are skipped</label>
+        <input id="minPay" value="0" />
+        <label>Pool fee % (deducted from each amount)</label>
+        <input id="feePct" value="0" />
+        <label>CSV: address,amountBDAG (one per line)</label>
+        <textarea id="csvBox" placeholder="0xabc...,1.5&#10;0xdef...,0.25"></textarea>
+        <label>Batch size (max 40 recommended)</label>
+        <input id="batchSize" value="20" />
+        <div class="row">
+          <button id="btnParse" class="secondary" type="button">Parse / preview</button>
+          <button id="btnDry" class="secondary" type="button" disabled>Dry run</button>
+          <button id="btnSetClaim" type="button" disabled>Set next batch (wait confirm)</button>
+        </div>
+        <p style="margin:.5rem 0 0; font-size:.85rem; color:var(--muted)">
+          Parsed: <span id="parseInfo">0</span> · Next batch index: <span id="batchIdx">0</span>
+        </p>
+        <div style="max-height:160px; overflow:auto; margin-top:.5rem">
+          <table>
+            <thead><tr><th>#</th><th>Address</th><th>BDAG</th><th>After fee</th></tr></thead>
+            <tbody id="previewBody"></tbody>
+          </table>
+        </div>
+        <p id="solvency" class="sub"></p>
+      </div>
+
+      <div class="card">
+        <strong>Owner controls</strong>
+        <div class="row">
+          <button id="btnPause" class="danger" type="button" disabled>Pause</button>
+          <button id="btnUnpause" class="secondary" type="button" disabled>Unpause</button>
+        </div>
+        <label>Withdraw amount (BDAG) to owner wallet</label>
+        <input id="wdAmt" placeholder="0" />
+        <button id="btnWithdraw" class="danger" type="button" disabled>Withdraw</button>
+        <label>Add operator address</label>
+        <input id="newOp" placeholder="0x…" />
+        <button id="btnAddOp" class="secondary" type="button" disabled>setOperator true</button>
+      </div>
+
+      <div class="card">
+        <strong>History (recent ClaimableSet / Claimed)</strong>
+        <button id="btnHistory" class="secondary" type="button" disabled>Load events</button>
+        <button id="btnExport" class="secondary" type="button" disabled>Export preview CSV</button>
+        <div id="histBox" style="margin-top:.5rem; font-size:.82rem; color:var(--muted)"></div>
+      </div>
+
+      <div class="card" id="stepShare">
+        <strong>Share with miners</strong>
+        <textarea id="shareText" readonly></textarea>
+        <button id="btnCopyShare" class="secondary" type="button">Copy message</button>
+      </div>
+
+      <div class="card"><div id="log"></div></div>
+    </div>
+
+    <!-- ========== MINER ========== -->
+    <div id="panelClaim" class="hidden">
+      <div class="card">
+        <button id="btnConnect2" type="button">Connect wallet</button>
+        <p style="margin:.5rem 0 0">
+          <span id="walletPill2" class="pill">Not connected</span>
+          <span id="chainPill2" class="pill">—</span>
+        </p>
+      </div>
+      <div class="card">
+        <label>Vault address from your pool</label>
+        <input id="claimVault" placeholder="0x…" />
+        <div class="check"><input type="checkbox" id="ck1" /><span>I got this vault address from my pool’s official channel or OFFICIAL_VAULTS list</span></div>
+        <div class="check"><input type="checkbox" id="ck2" /><span>I am on the official claim site (not a random copy)</span></div>
+        <button id="btnRefreshClaim" class="secondary" type="button">Refresh my claimable</button>
+        <p style="margin:.6rem 0">
+          Vault balance: <strong id="cVaultBal">—</strong><br/>
+          Your claimable: <strong id="cMyClaim">—</strong>
+        </p>
+        <button id="btnClaim" type="button" disabled>Claim</button>
+      </div>
+      <div class="card"><div id="clog"></div></div>
+    </div>
+  </div>
+
+  <script>
+    const CHAIN_ID = 1404n;
+    const COMMUNITY_RPCS = [
+      "https://rpc.east.bdag-us.org",
+      "https://rpc.west.bdag-us.org"
+    ];
+    const COMMUNITY_RPC = COMMUNITY_RPCS[0];
+    const EXPLORERS = [
+      "https://explorer.east.bdag-us.org",
+      "https://explorer.west.bdag-us.org"
+    ];
+    const EXPLORER = EXPLORERS[0];
+    const PROJECT_SITE = "https://bdag-us.org";
+
+    let provider, signer, account;
+    let vaultAddr = localStorage.getItem("bdag_vault") || "";
+    let parsedRows = [];
+    let batchCursor = 0;
+
+    const $ = (id) => document.getElementById(id);
+    const log = (m, cls) => { const d = document.createElement("div"); if (cls) d.className = cls; d.textContent = m; $("log").appendChild(d); $("log").scrollTop = 1e9; };
+    const clog = (m, cls) => { const d = document.createElement("div"); if (cls) d.className = cls; d.textContent = m; $("clog").appendChild(d); };
+
+    function setStep(n) {
+      document.querySelectorAll(".step").forEach((el) => {
+        const s = Number(el.dataset.s);
+        el.classList.remove("on", "done");
+        if (s < n) el.classList.add("done");
+        if (s === n) el.classList.add("on");
+      });
+    }
+
+    function updateShare() {
+      const page = location.href.split("?")[0].replace(/index\.html.*/, "") + (location.pathname.includes("index") ? "" : "");
+      const claimUrl = location.href.split("#")[0];
+      $("shareText").value =
+        "BDAG pool claim\n" +
+        "Page: " + claimUrl + "\n" +
+        "Vault: " + (vaultAddr || "(deploy first)") + "\n" +
+        "Network: BlockDAG 1404\n" +
+        "RPC: " + COMMUNITY_RPCS.join(" or ") + "\n" +
+        "Explorer: " + EXPLORERS.join(" or ") + "\n" +
+        "Site: " + PROJECT_SITE + "\n" +
+        "Never share your seed phrase.";
+    }
+
+    function saveVault(addr) {
+      vaultAddr = ethers.getAddress(addr);
+      localStorage.setItem("bdag_vault", vaultAddr);
+      $("vaultShow").textContent = vaultAddr;
+      $("vaultIn").value = vaultAddr;
+      $("claimVault").value = vaultAddr;
+      updateShare();
+      enableVaultActions(true);
+      setStep(3);
+    }
+
+    function enableVaultActions(on) {
+      ["btnRefreshVault","btnCopyVault","btnDry","btnSetClaim","btnPause","btnUnpause","btnWithdraw","btnAddOp","btnHistory","btnExport"].forEach((id) => {
+        $(id).disabled = !on || !signer;
+      });
+    }
+
+    async function ensureChain() {
+      let net = await provider.getNetwork();
+      if (net.chainId === CHAIN_ID) return;
+      try {
+        await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x57c" }] });
+      } catch {
+        await window.ethereum.request({
+          method: "wallet_addEthereumChain",
+          params: [{
+            chainId: "0x57c",
+            chainName: "BlockDAG Mainnet",
+            nativeCurrency: { name: "BDAG", symbol: "BDAG", decimals: 18 },
+            rpcUrls: COMMUNITY_RPCS,
+            blockExplorerUrls: EXPLORERS
+          }]
+        });
+      }
+      provider = new ethers.BrowserProvider(window.ethereum);
+      net = await provider.getNetwork();
+      if (net.chainId !== CHAIN_ID) throw new Error("Switch wallet to BlockDAG 1404");
+    }
+
+    async function refreshAccountPills(w1, c1) {
+      $(w1).textContent = account.slice(0, 6) + "…" + account.slice(-4);
+      const net = await provider.getNetwork();
+      $(c1).textContent = "Chain " + net.chainId.toString();
+      if (c1 === "chainPill") {
+        const latest = await provider.getTransactionCount(account, "latest");
+        const pending = await provider.getTransactionCount(account, "pending");
+        const gap = pending - latest;
+        $("gapPill").textContent = "gap " + gap;
+        $("gapPill").className = "pill " + (gap > 0 ? "err" : "ok");
+        const bal = await provider.getBalance(account);
+        $("balPill").textContent = "bal " + Number(ethers.formatEther(bal)).toFixed(4);
+        if (gap > 0) log("WARNING: pending gap > 0. Do not send operator txs until gap is 0.", "err");
+      }
+    }
+
+    async function connect(fromClaim) {
+      if (!window.ethereum) throw new Error("Install MetaMask");
+      provider = new ethers.BrowserProvider(window.ethereum);
+      await provider.send("eth_requestAccounts", []);
+      await ensureChain();
+      signer = await provider.getSigner();
+      account = await signer.getAddress();
+      await refreshAccountPills(fromClaim ? "walletPill2" : "walletPill", fromClaim ? "chainPill2" : "chainPill");
+      $("btnDeploy").disabled = false;
+      $("btnUseVault").disabled = false;
+      if (vaultAddr) enableVaultActions(true);
+      setStep(2);
+      (fromClaim ? clog : log)("Connected " + account, "ok");
+    }
+
+    $("tabOp").onclick = () => {
+      $("panelOp").classList.remove("hidden");
+      $("panelClaim").classList.add("hidden");
+      $("tabOp").classList.remove("secondary");
+      $("tabClaim").classList.add("secondary");
+    };
+    $("tabClaim").onclick = () => {
+      $("panelClaim").classList.remove("hidden");
+      $("panelOp").classList.add("hidden");
+      $("tabClaim").classList.remove("secondary");
+      $("tabOp").classList.add("secondary");
+      if (vaultAddr) $("claimVault").value = vaultAddr;
+    };
+
+    $("btnConnect").onclick = () => connect(false).catch((e) => log(e.message || e, "err"));
+    $("btnConnect2").onclick = () => connect(true).catch((e) => clog(e.message || e, "err"));
+
+    $("btnDeploy").onclick = async () => {
+      try {
+        if (!signer) throw new Error("Connect first");
+        if (!window.VAULT_BYTECODE || !window.VAULT_ABI) throw new Error("Missing contract embed");
+        const gapL = await provider.getTransactionCount(account, "latest");
+        const gapP = await provider.getTransactionCount(account, "pending");
+        if (gapP - gapL > 0) throw new Error("Pending gap > 0 — stop. Use clean wallet.");
+        let init = ($("initOp").value || "").trim();
+        if (!init) init = ethers.ZeroAddress;
+        else init = ethers.getAddress(init);
+        log("Deploying vault…");
+        const factory = new ethers.ContractFactory(window.VAULT_ABI, window.VAULT_BYTECODE, signer);
+        const contract = await factory.deploy(init);
+        log("Tx: " + contract.deploymentTransaction().hash);
+        await contract.waitForDeployment();
+        const addr = await contract.getAddress();
+        saveVault(addr);
+        log("Deployed " + addr, "ok");
+        setStep(3);
+      } catch (e) {
+        log(e.shortMessage || e.message || String(e), "err");
+      }
+    };
+
+    $("btnUseVault").onclick = () => {
+      try {
+        saveVault($("vaultIn").value.trim());
+        log("Using vault " + vaultAddr, "ok");
+      } catch (e) {
+        log(e.message || e, "err");
+      }
+    };
+
+    $("btnCopyVault").onclick = async () => {
+      await navigator.clipboard.writeText(vaultAddr);
+      log("Vault address copied", "ok");
+    };
+
+    $("btnRefreshVault").onclick = async () => {
+      try {
+        const c = new ethers.Contract(vaultAddr, window.VAULT_ABI, provider);
+        const b = await c.vaultBalance();
+        $("vaultBal").value = ethers.formatEther(b) + " BDAG";
+        log("Vault balance refreshed", "ok");
+        updateSolvency();
+      } catch (e) {
+        log(e.message || e, "err");
+      }
+    };
+
+    function parseCsv() {
+      const min = Number($("minPay").value || 0);
+      const fee = Number($("feePct").value || 0);
+      const lines = $("csvBox").value.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+      parsedRows = [];
+      for (const line of lines) {
+        if (/address|wallet|amount/i.test(line) && parsedRows.length === 0) continue;
+        const parts = line.split(/[,;\t]/).map((p) => p.trim());
+        if (parts.length < 2) continue;
+        try {
+          const addr = ethers.getAddress(parts[0]);
+          const amt = Number(parts[1]);
+          if (!(amt > 0) || amt < min) continue;
+          const after = amt * (1 - fee / 100);
+          if (after <= 0) continue;
+          parsedRows.push({ addr, amt, after, wei: ethers.parseEther(String(after)) });
+        } catch { /* skip */ }
+      }
+      batchCursor = 0;
+      $("batchIdx").textContent = "0";
+      $("parseInfo").textContent = String(parsedRows.length);
+      const tb = $("previewBody");
+      tb.innerHTML = "";
+      parsedRows.slice(0, 50).forEach((r, i) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${i}</td><td>${r.addr.slice(0, 8)}…</td><td>${r.amt}</td><td>${r.after}</td>`;
+        tb.appendChild(tr);
+      });
+      updateSolvency();
+      return parsedRows;
+    }
+
+    function updateSolvency() {
+      const total = parsedRows.reduce((s, r) => s + r.after, 0);
+      $("solvency").textContent = "Preview total after fee: " + total.toFixed(6) + " BDAG (vault must hold at least this for all claims)";
+    }
+
+    $("btnParse").onclick = () => {
+      parseCsv();
+      log("Parsed " + parsedRows.length + " rows", "ok");
+      setStep(4);
+    };
+
+    $("btnDry").onclick = () => {
+      parseCsv();
+      const size = Math.min(40, Math.max(1, Number($("batchSize").value || 20)));
+      const slice = parsedRows.slice(batchCursor, batchCursor + size);
+      log("DRY RUN batch " + batchCursor + " size " + slice.length + " total " + slice.reduce((s, r) => s + r.after, 0).toFixed(6) + " BDAG", "warn");
+      slice.forEach((r) => log("  " + r.addr + " -> " + r.after));
+    };
+
+    $("btnSetClaim").onclick = async () => {
+      try {
+        if (!signer || !vaultAddr) throw new Error("Connect and set vault");
+        const latest = await provider.getTransactionCount(account, "latest");
+        const pending = await provider.getTransactionCount(account, "pending");
+        if (pending - latest > 0) throw new Error("Pending gap > 0 — stop");
+        parseCsv();
+        const size = Math.min(40, Math.max(1, Number($("batchSize").value || 20)));
+        const slice = parsedRows.slice(batchCursor, batchCursor + size);
+        if (!slice.length) throw new Error("No rows left in batch");
+        const miners = slice.map((r) => r.addr);
+        const amounts = slice.map((r) => r.wei);
+        const c = new ethers.Contract(vaultAddr, window.VAULT_ABI, signer);
+        log("setClaimable batch @" + batchCursor + " n=" + slice.length);
+        const tx = await c.setClaimable(miners, amounts);
+        log("Tx: " + tx.hash);
+        await tx.wait();
+        log("Batch confirmed", "ok");
+        batchCursor += slice.length;
+        $("batchIdx").textContent = String(batchCursor);
+        if (batchCursor >= parsedRows.length) {
+          log("All rows submitted", "ok");
+          setStep(5);
+        }
+        await refreshAccountPills("walletPill", "chainPill");
+      } catch (e) {
+        log(e.shortMessage || e.message || String(e), "err");
+      }
+    };
+
+    $("btnPause").onclick = async () => {
+      try {
+        const c = new ethers.Contract(vaultAddr, window.VAULT_ABI, signer);
+        const tx = await c.setPaused(true);
+        log("pause " + tx.hash);
+        await tx.wait();
+        log("Paused", "ok");
+      } catch (e) { log(e.shortMessage || e.message, "err"); }
+    };
+    $("btnUnpause").onclick = async () => {
+      try {
+        const c = new ethers.Contract(vaultAddr, window.VAULT_ABI, signer);
+        const tx = await c.setPaused(false);
+        log("unpause " + tx.hash);
+        await tx.wait();
+        log("Unpaused", "ok");
+      } catch (e) { log(e.shortMessage || e.message, "err"); }
+    };
+    $("btnWithdraw").onclick = async () => {
+      try {
+        const amt = ethers.parseEther(String($("wdAmt").value || "0"));
+        const c = new ethers.Contract(vaultAddr, window.VAULT_ABI, signer);
+        const tx = await c.withdraw(account, amt);
+        log("withdraw " + tx.hash);
+        await tx.wait();
+        log("Withdrawn", "ok");
+      } catch (e) { log(e.shortMessage || e.message, "err"); }
+    };
+    $("btnAddOp").onclick = async () => {
+      try {
+        const op = ethers.getAddress($("newOp").value.trim());
+        const c = new ethers.Contract(vaultAddr, window.VAULT_ABI, signer);
+        const tx = await c.setOperator(op, true);
+        log("setOperator " + tx.hash);
+        await tx.wait();
+        log("Operator added", "ok");
+      } catch (e) { log(e.shortMessage || e.message, "err"); }
+    };
+
+    $("btnHistory").onclick = async () => {
+      try {
+        const c = new ethers.Contract(vaultAddr, window.VAULT_ABI, provider);
+        const from = Math.max(0, (await provider.getBlockNumber()) - 5000);
+        const setLogs = await c.queryFilter(c.filters.ClaimableSet(), from);
+        const claimLogs = await c.queryFilter(c.filters.Claimed(), from);
+        let html = "<div>ClaimableSet: " + setLogs.length + " · Claimed: " + claimLogs.length + " (last ~5k blocks)</div>";
+        claimLogs.slice(-15).reverse().forEach((l) => {
+          html += `<div>Claimed ${ethers.formatEther(l.args.amount)} → ${l.args.miner} tx ${l.transactionHash.slice(0, 10)}…</div>`;
+        });
+        $("histBox").innerHTML = html;
+        log("History loaded", "ok");
+      } catch (e) {
+        log(e.message || e, "err");
+      }
+    };
+
+    $("btnExport").onclick = () => {
+      parseCsv();
+      const csv = parsedRows.map((r) => r.addr + "," + r.after).join("\n");
+      const blob = new Blob([csv], { type: "text/csv" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "claimable-preview.csv";
+      a.click();
+    };
+
+    $("btnCopyShare").onclick = async () => {
+      updateShare();
+      await navigator.clipboard.writeText($("shareText").value);
+      log("Share text copied", "ok");
+    };
+
+    function claimEnabled() {
+      $("btnClaim").disabled = !($("ck1").checked && $("ck2").checked && signer);
+    }
+    $("ck1").onchange = claimEnabled;
+    $("ck2").onchange = claimEnabled;
+
+    $("btnRefreshClaim").onclick = async () => {
+      try {
+        if (!provider) await connect(true);
+        const addr = ethers.getAddress($("claimVault").value.trim());
+        const c = new ethers.Contract(addr, window.VAULT_ABI, provider);
+        const bal = await c.vaultBalance();
+        $("cVaultBal").textContent = ethers.formatEther(bal) + " BDAG";
+        if (account) {
+          const q = await c.claimable(account);
+          $("cMyClaim").textContent = ethers.formatEther(q) + " BDAG";
+        }
+        clog("Refreshed", "ok");
+      } catch (e) {
+        clog(e.message || e, "err");
+      }
+    };
+
+    $("btnClaim").onclick = async () => {
+      try {
+        if (!$("ck1").checked || !$("ck2").checked) throw new Error("Confirm the security checkboxes");
+        if (!signer) await connect(true);
+        const addr = ethers.getAddress($("claimVault").value.trim());
+        const c = new ethers.Contract(addr, window.VAULT_ABI, signer);
+        clog("Sending claim…");
+        const tx = await c.claim();
+        clog("Tx: " + tx.hash);
+        await tx.wait();
+        clog("Claim confirmed", "ok");
+        $("btnRefreshClaim").click();
+      } catch (e) {
+        clog(e.shortMessage || e.message || String(e), "err");
+      }
+    };
+
+    // Prefill ?vault=
+    const q = new URLSearchParams(location.search).get("vault");
+    if (q) {
+      try { saveVault(q); } catch {}
+    } else if (vaultAddr) {
+      try { saveVault(vaultAddr); } catch {}
+    }
+    updateShare();
+  </script>
+</body>
+</html>
