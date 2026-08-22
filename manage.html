@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Manage Payouts · BDAG Pool Claim</title>
+  <link rel="stylesheet" href="./css/styles.css" />
+</head>
+<body>
+  <nav class="topnav">
+    <div class="topnav-inner">
+      <a class="brand" href="./index.html">BDAG <span>Pool Claim</span></a>
+      <div class="nav-links">
+        <a href="./index.html">Home</a>
+        <div class="nav-drop">
+          <button type="button">Operator ▾</button>
+          <div class="nav-drop-menu">
+            <a href="./deploy.html">Deploy vault</a>
+            <a href="./fund.html">Fund vault</a>
+            <a href="./manage.html">Manage payouts</a>
+          </div>
+        </div>
+        <a href="./claim.html">Miner claim</a>
+      </div>
+      <div class="wallet-area">
+        <span id="vaultPill" class="pill">No vault</span>
+        <span id="walletPill" class="pill">Not connected</span>
+        <span id="chainPill" class="pill">—</span>
+        <button id="btnConnect" class="secondary" type="button" style="width:auto;margin:0;padding:.4rem .7rem;font-size:.8rem">Connect</button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="wrap">
+    <h1 class="page-title">Manage payouts</h1>
+    <p class="page-sub">Set claimable amounts, pause the vault, withdraw, or add operators.</p>
+
+    <div class="banner">
+      Confirm each operator transaction before sending the next.
+      Use Engineering RPC only. Pending nonce gaps will be blocked.
+    </div>
+
+    <!-- Vault selector -->
+    <div class="card">
+      <h2>Vault</h2>
+      <label>Vault address</label>
+      <input id="vaultInput" placeholder="0x…" />
+      <div class="row">
+        <button id="btnSaveVault" class="secondary" type="button">Save vault</button>
+        <button id="btnRefresh" class="secondary" type="button">Refresh</button>
+      </div>
+      <div class="stat-row" style="margin-top:.8rem">
+        <div class="stat"><div class="label">Vault balance</div><div class="value" id="vaultBal">—</div></div>
+        <div class="stat"><div class="label">Paused</div><div class="value" id="pausedStat">—</div></div>
+        <div class="stat"><div class="label">Owner</div><div class="value" id="ownerStat" style="font-size:.8rem">—</div></div>
+      </div>
+    </div>
+
+    <!-- Set claimable -->
+    <div class="card">
+      <h2>Set claimable (CSV)</h2>
+      <label>Pool fee % (deducted from each amount)</label>
+      <input id="feePct" value="0" />
+      <label>Minimum BDAG to include</label>
+      <input id="minAmt" value="0" />
+      <label>CSV: address,amountBDAG (one per line)</label>
+      <textarea id="csvBox" placeholder="0xabc...,1.5&#10;0xdef...,0.25"></textarea>
+      <label>Batch size (max 40 recommended)</label>
+      <input id="batchSize" value="20" />
+      <div class="row">
+        <button id="btnParse" class="secondary" type="button">Parse / preview</button>
+        <button id="btnDry" class="secondary" type="button">Dry run</button>
+        <button id="btnSetClaim" type="button">Set next batch</button>
+      </div>
+      <p style="margin:.5rem 0 0;font-size:.84rem;color:var(--muted)">
+        Parsed: <span id="parseInfo">0</span> · Next batch index: <span id="batchIdx">0</span>
+      </p>
+      <p id="solvency" style="margin:.35rem 0 0;font-size:.84rem;color:var(--muted)"></p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>#</th><th>Address</th><th>BDAG</th><th>After fee</th></tr></thead>
+          <tbody id="previewBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Owner controls -->
+    <div class="card">
+      <h2>Owner controls</h2>
+      <div class="row">
+        <button id="btnPause" class="danger" type="button">Pause</button>
+        <button id="btnUnpause" class="secondary" type="button">Unpause</button>
+      </div>
+      <label>Withdraw amount (BDAG) to your wallet</label>
+      <input id="wdAmt" placeholder="0" />
+      <button id="btnWithdraw" class="danger" type="button">Withdraw</button>
+      <label>Add operator address</label>
+      <input id="newOp" placeholder="0x…" />
+      <button id="btnAddOp" class="secondary" type="button">Add operator</button>
+    </div>
+
+    <!-- Share -->
+    <div class="card">
+      <h2>Share with miners</h2>
+      <textarea id="shareText" readonly style="min-height:90px"></textarea>
+      <button id="btnCopyShare" class="secondary" type="button">Copy message</button>
+    </div>
+
+    <!-- History -->
+    <div class="card">
+      <h2>Recent events</h2>
+      <button id="btnHistory" class="secondary" type="button">Load ClaimableSet / Claimed</button>
+      <div id="histBox" style="margin-top:.6rem;font-size:.82rem;color:var(--muted)"></div>
+    </div>
+
+    <div class="card">
+      <h2>Log</h2>
+      <div id="log" class="log-box"></div>
+    </div>
+  </div>
+
+  <div class="footer">
+    Community tool · Chain 1404 · Confirm each tx before the next
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+  <script src="./js/embed.js"></script>
+  <script src="./js/app.js"></script>
+  <script>
+    const { $, log, connect, setVault, getVault, refreshVaultBalance, short } = APP;
+    let parsedRows = [];
+    let batchCursor = 0;
+
+    function updateShare() {
+      const v = getVault();
+      const claimUrl = new URL("claim.html", location.href).href + (v ? ("?vault=" + v) : "");
+      $("shareText").value =
+        "BDAG pool claim\n" +
+        "Claim page: " + claimUrl + "\n" +
+        "Vault: " + (v || "(set vault first)") + "\n" +
+        "Network: BlockDAG 1404\n" +
+        "RPC: https://rpc.blockdag.engineering";
+    }
+
+    async function refreshMeta() {
+      try {
+        const c = await APP.getVaultContract(false);
+        const bal = await c.vaultBalance();
+        $("vaultBal").textContent = Number(ethers.formatEther(bal)).toFixed(4) + " BDAG";
+        const paused = await c.paused();
+        $("pausedStat").textContent = paused ? "YES" : "No";
+        $("pausedStat").style.color = paused ? "var(--err)" : "var(--ok)";
+        const owner = await c.owner();
+        $("ownerStat").textContent = short(owner);
+      } catch (e) {
+        $("vaultBal").textContent = "—";
+        $("pausedStat").textContent = "—";
+        $("ownerStat").textContent = "—";
+      }
+      updateShare();
+    }
+
+    function parseCsv() {
+      const fee = Number($("feePct").value || 0);
+      const min = Number($("minAmt").value || 0);
+      const lines = $("csvBox").value.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+      parsedRows = [];
+      for (const line of lines) {
+        if (/address|wallet|amount/i.test(line) && parsedRows.length === 0) continue;
+        const parts = line.split(/[,;\t]/).map((p) => p.trim());
+        if (parts.length < 2) continue;
+        try {
+          const addr = ethers.getAddress(parts[0]);
+          const amt = Number(parts[1]);
+          if (!(amt > 0) || amt < min) continue;
+          const after = amt * (1 - fee / 100);
+          if (after <= 0) continue;
+          parsedRows.push({ addr, amt, after, wei: ethers.parseEther(String(after)) });
+        } catch { /* skip */ }
+      }
+      batchCursor = 0;
+      $("batchIdx").textContent = "0";
+      $("parseInfo").textContent = String(parsedRows.length);
+      const tb = $("previewBody");
+      tb.innerHTML = "";
+      parsedRows.slice(0, 80).forEach((r, i) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${i}</td><td>${r.addr.slice(0, 8)}…</td><td>${r.amt}</td><td>${r.after.toFixed(6)}</td>`;
+        tb.appendChild(tr);
+      });
+      const total = parsedRows.reduce((s, r) => s + r.after, 0);
+      $("solvency").textContent = "Preview total after fee: " + total.toFixed(6) + " BDAG (vault must hold at least this)";
+      return parsedRows;
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      const v = getVault();
+      if (v) $("vaultInput").value = v;
+      setTimeout(refreshMeta, 500);
+      updateShare();
+    });
+
+    $("btnSaveVault").onclick = () => {
+      try {
+        const addr = ethers.getAddress(($("vaultInput").value || "").trim());
+        setVault(addr);
+        log("Vault saved", "ok");
+        refreshMeta();
+      } catch (e) { log(e.message || String(e), "err"); }
+    };
+
+    $("btnRefresh").onclick = () => refreshMeta();
+
+    $("btnParse").onclick = () => {
+      parseCsv();
+      log("Parsed " + parsedRows.length + " rows", "ok");
+    };
+
+    $("btnDry").onclick = () => {
+      parseCsv();
+      const size = Math.min(40, Math.max(1, Number($("batchSize").value || 20)));
+      const slice = parsedRows.slice(batchCursor, batchCursor + size);
+      log("DRY RUN batch @" + batchCursor + " n=" + slice.length, "warn");
+      slice.forEach((r) => log("  " + r.addr + " → " + r.after));
+    };
+
+    $("btnSetClaim").onclick = async () => {
+      try {
+        await connect();
+        const gap = await APP.checkNonceGap();
+        if (gap > 0) throw new Error("Pending gap > 0 — stop and wait");
+        parseCsv();
+        const size = Math.min(40, Math.max(1, Number($("batchSize").value || 20)));
+        const slice = parsedRows.slice(batchCursor, batchCursor + size);
+        if (!slice.length) throw new Error("No rows left in batch");
+        const miners = slice.map((r) => r.addr);
+        const amounts = slice.map((r) => r.wei);
+        const c = await APP.getVaultContract(true);
+        log("setClaimable batch @" + batchCursor + " n=" + slice.length);
+        const tx = await c.setClaimable(miners, amounts);
+        log("Tx: " + tx.hash);
+        await tx.wait();
+        log("Batch confirmed", "ok");
+        batchCursor += slice.length;
+        $("batchIdx").textContent = String(batchCursor);
+        if (batchCursor >= parsedRows.length) log("All rows submitted", "ok");
+        await refreshMeta();
+      } catch (e) {
+        log(e.shortMessage || e.message || String(e), "err");
+      }
+    };
+
+    $("btnPause").onclick = async () => {
+      try {
+        await connect();
+        const c = await APP.getVaultContract(true);
+        const tx = await c.setPaused(true);
+        log("pause " + tx.hash);
+        await tx.wait();
+        log("Paused", "ok");
+        refreshMeta();
+      } catch (e) { log(e.shortMessage || e.message, "err"); }
+    };
+
+    $("btnUnpause").onclick = async () => {
+      try {
+        await connect();
+        const c = await APP.getVaultContract(true);
+        const tx = await c.setPaused(false);
+        log("unpause " + tx.hash);
+        await tx.wait();
+        log("Unpaused", "ok");
+        refreshMeta();
+      } catch (e) { log(e.shortMessage || e.message, "err"); }
+    };
+
+    $("btnWithdraw").onclick = async () => {
+      try {
+        await connect();
+        const amt = ethers.parseEther(String($("wdAmt").value || "0"));
+        if (amt <= 0n) throw new Error("Enter withdraw amount");
+        const c = await APP.getVaultContract(true);
+        const tx = await c.withdraw(APP.account, amt);
+        log("withdraw " + tx.hash);
+        await tx.wait();
+        log("Withdrawn", "ok");
+        $("wdAmt").value = "";
+        refreshMeta();
+      } catch (e) { log(e.shortMessage || e.message, "err"); }
+    };
+
+    $("btnAddOp").onclick = async () => {
+      try {
+        await connect();
+        const op = ethers.getAddress(($("newOp").value || "").trim());
+        const c = await APP.getVaultContract(true);
+        const tx = await c.setOperator(op, true);
+        log("setOperator " + tx.hash);
+        await tx.wait();
+        log("Operator added: " + op, "ok");
+        $("newOp").value = "";
+      } catch (e) { log(e.shortMessage || e.message, "err"); }
+    };
+
+    $("btnCopyShare").onclick = async () => {
+      await navigator.clipboard.writeText($("shareText").value);
+      log("Share message copied", "ok");
+    };
+
+    $("btnHistory").onclick = async () => {
+      try {
+        const c = await APP.getVaultContract(false);
+        const from = Math.max(0, (await APP.provider.getBlockNumber()) - 5000);
+        const [sets, claims] = await Promise.all([
+          c.queryFilter(c.filters.ClaimableSet(), from),
+          c.queryFilter(c.filters.Claimed(), from)
+        ]);
+        const box = $("histBox");
+        box.innerHTML = "";
+        const all = [...sets.map((e) => ({ t: "Set", a: e.args[0], n: e.args[1], b: e.blockNumber })),
+                     ...claims.map((e) => ({ t: "Claimed", a: e.args[0], n: e.args[1], b: e.blockNumber }))];
+        all.sort((x, y) => y.b - x.b);
+        if (!all.length) {
+          box.textContent = "No recent events in last ~5000 blocks";
+          return;
+        }
+        all.slice(0, 40).forEach((e) => {
+          const d = document.createElement("div");
+          d.textContent = `#${e.b} ${e.t} ${short(e.a)} ${ethers.formatEther(e.n)} BDAG`;
+          box.appendChild(d);
+        });
+        log("Loaded " + all.length + " events", "ok");
+      } catch (e) {
+        log(e.shortMessage || e.message || String(e), "err");
+      }
+    };
+  </script>
+</body>
+</html>

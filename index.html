@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BDAG Pool Claim</title>
+  <link rel="stylesheet" href="./css/styles.css" />
+</head>
+<body>
+  <nav class="topnav">
+    <div class="topnav-inner">
+      <a class="brand" href="./index.html">BDAG <span>Pool Claim</span></a>
+      <div class="nav-links">
+        <a href="./index.html" class="active">Home</a>
+        <div class="nav-drop">
+          <button type="button">Operator ▾</button>
+          <div class="nav-drop-menu">
+            <a href="./deploy.html">Deploy vault</a>
+            <a href="./fund.html">Fund vault</a>
+            <a href="./manage.html">Manage payouts</a>
+          </div>
+        </div>
+        <a href="./claim.html">Miner claim</a>
+      </div>
+      <div class="wallet-area">
+        <span id="vaultPill" class="pill">No vault</span>
+        <span id="walletPill" class="pill">Not connected</span>
+        <span id="chainPill" class="pill">—</span>
+        <button id="btnConnect" class="secondary" type="button" style="width:auto;margin:0;padding:.4rem .7rem;font-size:.8rem">Connect</button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="wrap">
+    <h1 class="page-title">BDAG Pool Claim Vault</h1>
+    <p class="page-sub">
+      On-chain payout vault for BlockDAG mining pools · Chain 1404 · Engineering RPC only
+    </p>
+
+    <div class="banner info">
+      Use <strong>rpc.blockdag.engineering</strong> only. Do not use bdagscan RPC.
+      One vault per pool. Never share seed phrases.
+    </div>
+
+    <div class="role-grid">
+      <a class="role-card" href="./deploy.html">
+        <h2>Operator</h2>
+        <p>Deploy a vault, fund it, set claimable amounts for miners, pause or withdraw.</p>
+        <span class="tag">Deploy · Fund · Manage</span>
+      </a>
+      <a class="role-card" href="./claim.html">
+        <h2>Miner</h2>
+        <p>Paste your pool’s vault address, check claimable balance, and claim your BDAG.</p>
+        <span class="tag">Claim rewards</span>
+      </a>
+    </div>
+
+    <div class="card" style="margin-top:1.25rem">
+      <h2>Quick flow</h2>
+      <ol style="margin:0;padding-left:1.2rem;color:var(--muted);font-size:.9rem">
+        <li>Operator deploys a vault (Deploy page)</li>
+        <li>Operator sends BDAG to the vault address (Fund page)</li>
+        <li>Operator sets claimable amounts from CSV (Manage page)</li>
+        <li>Miners open Claim page and withdraw their share</li>
+      </ol>
+    </div>
+
+    <div class="card">
+      <h2>Network</h2>
+      <div class="stat-row">
+        <div class="stat"><div class="label">Chain ID</div><div class="value">1404</div></div>
+        <div class="stat"><div class="label">RPC</div><div class="value" style="font-size:.85rem">rpc.blockdag.engineering</div></div>
+        <div class="stat"><div class="label">Explorer</div><div class="value" style="font-size:.85rem">explorer.blockdag.engineering</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    Community tool · <a href="https://bdag.community" target="_blank" rel="noopener">bdag.community</a>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+  <script src="./js/embed.js"></script>
+  <script src="./js/app.js"></script>
+</body>
+</html>
