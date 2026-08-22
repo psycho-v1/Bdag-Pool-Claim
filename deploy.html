@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Deploy Vault · BDAG Pool Claim</title>
+  <link rel="stylesheet" href="./css/styles.css" />
+</head>
+<body>
+  <nav class="topnav">
+    <div class="topnav-inner">
+      <a class="brand" href="./index.html">BDAG <span>Pool Claim</span></a>
+      <div class="nav-links">
+        <a href="./index.html">Home</a>
+        <div class="nav-drop">
+          <button type="button">Operator ▾</button>
+          <div class="nav-drop-menu">
+            <a href="./deploy.html">Deploy vault</a>
+            <a href="./fund.html">Fund vault</a>
+            <a href="./manage.html">Manage payouts</a>
+            <a href="./upgrade.html">Upgrade contract</a>
+          </div>
+        </div>
+        <a href="./claim.html">Miner claim</a>
+      </div>
+      <div class="wallet-area">
+        <span id="vaultPill" class="pill">No vault</span>
+        <span id="walletPill" class="pill">Not connected</span>
+        <span id="chainPill" class="pill">—</span>
+        <button id="btnConnect" class="secondary" type="button" style="width:auto;margin:0;padding:.4rem .7rem;font-size:.8rem">Connect</button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="wrap">
+    <h1 class="page-title">Deploy vault</h1>
+    <p class="page-sub">Create a new PoolPayoutVault on BlockDAG chain 1404. You become the owner.</p>
+
+    <div class="steps">
+      <span class="step on">1. Connect</span>
+      <span class="step">2. Deploy</span>
+      <span class="step">3. Save address</span>
+      <span class="step">4. Fund</span>
+    </div>
+
+    <div class="banner">
+      Deploy once per pool. After deployment go to <strong>Fund vault</strong> to send BDAG,
+      then <strong>Manage payouts</strong> to set claimable amounts.
+    </div>
+
+    <div class="banner info">
+      <strong>Simple vault</strong> (button below): fixed logic — cannot upgrade later.<br/>
+      <strong>Upgradeable vault</strong>: deploy <code>PoolPayoutVaultUpgradeable</code> + <code>VaultProxy</code>
+      via Remix (see README), then paste the <em>proxy</em> address under “existing vault”.
+      Later use <strong>Upgrade contract</strong> to change logic without a new miner address.
+    </div>
+
+    <div class="card">
+      <h2>Deploy new vault</h2>
+      <label>Initial operator address (optional — leave blank to use your wallet)</label>
+      <input id="initOp" placeholder="0x… or leave empty" />
+      <div class="row">
+        <button id="btnDeploy" type="button">Deploy PoolPayoutVault</button>
+      </div>
+      <p style="margin:.7rem 0 0;font-size:.85rem;color:var(--muted)">
+        Gas is paid by your connected wallet. Confirm the transaction in MetaMask.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>Or use existing vault</h2>
+      <label>Vault address</label>
+      <input id="existingVault" placeholder="0x…" />
+      <button id="btnUseExisting" class="secondary" type="button">Save &amp; continue to Fund</button>
+    </div>
+
+    <div class="card">
+      <h2>Result</h2>
+      <div class="stat-row">
+        <div class="stat">
+          <div class="label">Deployed / selected vault</div>
+          <div class="value" id="resultVault" style="font-size:.9rem;word-break:break-all">—</div>
+        </div>
+      </div>
+      <div class="row" style="margin-top:.6rem">
+        <button id="btnGoFund" class="ok" type="button" disabled>Go to Fund vault →</button>
+        <button id="btnCopyVault" class="secondary" type="button" disabled>Copy address</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Log</h2>
+      <div id="log" class="log-box"></div>
+    </div>
+  </div>
+
+  <div class="footer">
+    Community tool · Chain 1404 · <a href="https://explorer.blockdag.engineering" target="_blank" rel="noopener">Explorer</a>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+  <script src="./js/embed.js"></script>
+  <script src="./js/app.js"></script>
+  <script>
+    const { $, log, connect, setVault, getVault, short } = APP;
+
+    function showVault(addr) {
+      $("resultVault").textContent = addr;
+      $("btnGoFund").disabled = !addr;
+      $("btnCopyVault").disabled = !addr;
+      setVault(addr);
+    }
+
+    // Prefill if already saved
+    document.addEventListener("DOMContentLoaded", () => {
+      const v = getVault();
+      if (v) {
+        $("existingVault").value = v;
+        showVault(v);
+      }
+    });
+
+    $("btnDeploy").onclick = async () => {
+      try {
+        await connect();
+        const gap = await APP.checkNonceGap();
+        if (gap > 0) throw new Error("Pending nonce gap > 0 — wait for pending txs or clear them");
+
+        let initOp = ($("initOp").value || "").trim();
+        if (!initOp) initOp = APP.account;
+        initOp = ethers.getAddress(initOp);
+
+        if (!window.VAULT_BYTECODE) throw new Error("VAULT_BYTECODE missing");
+
+        log("Deploying PoolPayoutVault…");
+        const factory = new ethers.ContractFactory(window.VAULT_ABI, window.VAULT_BYTECODE, APP.signer);
+        const contract = await factory.deploy(initOp);
+        log("Tx: " + contract.deploymentTransaction().hash);
+        await contract.waitForDeployment();
+        const addr = await contract.getAddress();
+        log("Deployed at " + addr, "ok");
+        showVault(addr);
+      } catch (e) {
+        log(e.shortMessage || e.message || String(e), "err");
+      }
+    };
+
+    $("btnUseExisting").onclick = () => {
+      try {
+        const addr = ethers.getAddress(($("existingVault").value || "").trim());
+        showVault(addr);
+        log("Vault saved: " + addr, "ok");
+      } catch (e) {
+        log(e.message || String(e), "err");
+      }
+    };
+
+    $("btnGoFund").onclick = () => {
+      location.href = "./fund.html";
+    };
+
+    $("btnCopyVault").onclick = async () => {
+      const a = $("resultVault").textContent;
+      if (a && a !== "—") {
+        await navigator.clipboard.writeText(a);
+        log("Copied " + a, "ok");
+      }
+    };
+  </script>
+</body>
+</html>

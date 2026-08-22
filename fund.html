@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Fund Vault · BDAG Pool Claim</title>
+  <link rel="stylesheet" href="./css/styles.css" />
+</head>
+<body>
+  <nav class="topnav">
+    <div class="topnav-inner">
+      <a class="brand" href="./index.html">BDAG <span>Pool Claim</span></a>
+      <div class="nav-links">
+        <a href="./index.html">Home</a>
+        <div class="nav-drop">
+          <button type="button">Operator ▾</button>
+          <div class="nav-drop-menu">
+            <a href="./deploy.html">Deploy vault</a>
+            <a href="./fund.html">Fund vault</a>
+            <a href="./manage.html">Manage payouts</a>
+            <a href="./upgrade.html">Upgrade contract</a>
+          </div>
+        </div>
+        <a href="./claim.html">Miner claim</a>
+      </div>
+      <div class="wallet-area">
+        <span id="vaultPill" class="pill">No vault</span>
+        <span id="walletPill" class="pill">Not connected</span>
+        <span id="chainPill" class="pill">—</span>
+        <button id="btnConnect" class="secondary" type="button" style="width:auto;margin:0;padding:.4rem .7rem;font-size:.8rem">Connect</button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="wrap">
+    <h1 class="page-title">Fund vault</h1>
+    <p class="page-sub">Send BDAG to an existing vault. No redeploy needed — just top up anytime.</p>
+
+    <div class="banner info">
+      The vault accepts native BDAG via its <code>receive()</code> function.
+      After funding, go to <strong>Manage payouts</strong> to set claimable amounts for miners.
+    </div>
+
+    <div class="card">
+      <h2>Vault</h2>
+      <label>Vault address</label>
+      <input id="vaultInput" placeholder="0x…" />
+      <div class="row">
+        <button id="btnSaveVault" class="secondary" type="button">Save vault</button>
+        <button id="btnRefreshBal" class="secondary" type="button">Refresh balance</button>
+      </div>
+      <div class="stat-row" style="margin-top:.8rem">
+        <div class="stat">
+          <div class="label">Vault balance</div>
+          <div class="value" id="vaultBal">—</div>
+        </div>
+        <div class="stat">
+          <div class="label">Your wallet balance</div>
+          <div class="value" id="walletBal">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Send BDAG to vault</h2>
+      <label>Amount (BDAG)</label>
+      <input id="fundAmt" type="text" placeholder="e.g. 1000" />
+      <div class="row">
+        <button id="btnFund" type="button">Send to vault</button>
+      </div>
+      <p style="margin:.6rem 0 0;font-size:.84rem;color:var(--muted)">
+        This is a normal native transfer to the vault contract address. Confirm in MetaMask.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>Next step</h2>
+      <p style="margin:0 0 .6rem;color:var(--muted);font-size:.9rem">
+        After the vault has funds, open Manage to set which miners can claim how much.
+      </p>
+      <button id="btnGoManage" class="ok" type="button">Go to Manage payouts →</button>
+    </div>
+
+    <div class="card">
+      <h2>Log</h2>
+      <div id="log" class="log-box"></div>
+    </div>
+  </div>
+
+  <div class="footer">
+    Community tool · Chain 1404 · <a href="https://explorer.blockdag.engineering" target="_blank" rel="noopener">Explorer</a>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+  <script src="./js/embed.js"></script>
+  <script src="./js/app.js"></script>
+  <script>
+    const { $, log, connect, setVault, getVault, refreshVaultBalance } = APP;
+
+    async function refreshAll() {
+      try {
+        if (!APP.account) await connect();
+        const bal = await APP.provider.getBalance(APP.account);
+        $("walletBal").textContent = Number(ethers.formatEther(bal)).toFixed(4) + " BDAG";
+      } catch (_) {
+        $("walletBal").textContent = "—";
+      }
+      try {
+        await refreshVaultBalance("vaultBal");
+      } catch (e) {
+        log(e.shortMessage || e.message || String(e), "err");
+      }
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      const v = getVault();
+      if (v) $("vaultInput").value = v;
+      // small delay so connect may finish
+      setTimeout(refreshAll, 600);
+    });
+
+    $("btnSaveVault").onclick = () => {
+      try {
+        const addr = ethers.getAddress(($("vaultInput").value || "").trim());
+        setVault(addr);
+        log("Vault saved: " + addr, "ok");
+        refreshAll();
+      } catch (e) {
+        log(e.message || String(e), "err");
+      }
+    };
+
+    $("btnRefreshBal").onclick = () => refreshAll();
+
+    $("btnFund").onclick = async () => {
+      try {
+        await connect();
+        const vault = ethers.getAddress(($("vaultInput").value || getVault() || "").trim());
+        setVault(vault);
+        const amtStr = ($("fundAmt").value || "").trim();
+        if (!amtStr || Number(amtStr) <= 0) throw new Error("Enter a positive amount");
+        const value = ethers.parseEther(amtStr);
+
+        const gap = await APP.checkNonceGap();
+        if (gap > 0) throw new Error("Pending nonce gap > 0 — wait before sending");
+
+        log("Sending " + amtStr + " BDAG to " + vault + " …");
+        const tx = await APP.signer.sendTransaction({ to: vault, value });
+        log("Tx: " + tx.hash);
+        await tx.wait();
+        log("Funded successfully", "ok");
+        $("fundAmt").value = "";
+        await refreshAll();
+      } catch (e) {
+        log(e.shortMessage || e.message || String(e), "err");
+      }
+    };
+
+    $("btnGoManage").onclick = () => {
+      location.href = "./manage.html";
+    };
+  </script>
+</body>
+</html>
