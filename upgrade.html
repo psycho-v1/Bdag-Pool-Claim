@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Upgrade Contract · BDAG Pool Claim</title>
+  <link rel="stylesheet" href="./css/styles.css" />
+</head>
+<body>
+  <nav class="topnav">
+    <div class="topnav-inner">
+      <a class="brand" href="./index.html">BDAG <span>Pool Claim</span></a>
+      <div class="nav-links">
+        <a href="./index.html">Home</a>
+        <div class="nav-drop">
+          <button type="button">Operator ▾</button>
+          <div class="nav-drop-menu">
+            <a href="./deploy.html">Deploy vault</a>
+            <a href="./fund.html">Fund vault</a>
+            <a href="./manage.html">Manage payouts</a>
+            <a href="./upgrade.html">Upgrade contract</a>
+          </div>
+        </div>
+        <a href="./claim.html">Miner claim</a>
+      </div>
+      <div class="wallet-area">
+        <span id="vaultPill" class="pill">No vault</span>
+        <span id="walletPill" class="pill">Not connected</span>
+        <span id="chainPill" class="pill">—</span>
+        <button id="btnConnect" class="secondary" type="button" style="width:auto;margin:0;padding:.4rem .7rem;font-size:.8rem">Connect</button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="wrap">
+    <h1 class="page-title">Upgrade contract</h1>
+    <p class="page-sub">
+      Point an upgradeable vault (proxy) at a new implementation. Only the owner can do this.
+      The vault address that miners use does <strong>not</strong> change.
+    </p>
+
+    <div class="banner err">
+      <strong>Danger zone.</strong> A bad implementation can lock funds or break claims.
+      Test on a small vault first. Confirm you are the owner of the proxy.
+    </div>
+
+    <div class="banner info">
+      This page only works with the <strong>upgradeable</strong> vault (proxy + implementation).
+      The original simple (non-upgradeable) vault cannot be upgraded — deploy a new one instead.
+    </div>
+
+    <div class="card">
+      <h2>RPC (optional override)</h2>
+      <label>Custom RPC</label>
+      <input id="rpcInput" placeholder="https://rpc.east.bdag-us.org" />
+      <div class="row">
+        <button id="btnSaveRpc" class="secondary" type="button">Save RPC</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>1. Vault (proxy address)</h2>
+      <label>Proxy / vault address miners use</label>
+      <input id="proxyInput" placeholder="0x…" />
+      <div class="row">
+        <button id="btnSaveProxy" class="secondary" type="button">Save vault</button>
+        <button id="btnReadImpl" class="secondary" type="button">Read current implementation</button>
+      </div>
+      <div class="stat-row" style="margin-top:.8rem">
+        <div class="stat">
+          <div class="label">Current implementation</div>
+          <div class="value" id="currentImpl" style="font-size:.85rem;word-break:break-all">—</div>
+        </div>
+        <div class="stat">
+          <div class="label">Owner</div>
+          <div class="value" id="ownerStat" style="font-size:.85rem">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>2. New implementation</h2>
+      <p style="margin:0 0 .6rem;color:var(--muted);font-size:.88rem">
+        Deploy the new <code>PoolPayoutVaultUpgradeable</code> logic contract first
+        (Remix or your toolchain), then paste its address here.
+      </p>
+      <label>New implementation address</label>
+      <input id="newImpl" placeholder="0x… (already deployed logic contract)" />
+      <label>Optional: call data after upgrade (hex, advanced)</label>
+      <input id="callData" placeholder="0x (leave empty for upgradeTo only)" />
+      <div class="check">
+        <input type="checkbox" id="ckUpgrade" />
+        <span>I understand this changes vault logic permanently and I tested the new implementation</span>
+      </div>
+      <div class="row">
+        <button id="btnUpgrade" class="danger" type="button" disabled>Upgrade to new implementation</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>How upgrades work</h2>
+      <ol style="margin:0;padding-left:1.2rem;color:var(--muted);font-size:.9rem">
+        <li>Compile &amp; deploy a new implementation contract (logic only)</li>
+        <li>Paste the proxy (vault) address and the new implementation address</li>
+        <li>Owner confirms <code>upgradeTo</code> (or <code>upgradeToAndCall</code>)</li>
+        <li>Miners keep using the same vault address — no migration needed</li>
+      </ol>
+    </div>
+
+    <div class="card">
+      <h2>Log</h2>
+      <div id="log" class="log-box"></div>
+    </div>
+  </div>
+
+  <div class="footer">
+    Owner-only · Chain 1404 · Storage layout must stay compatible between versions
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+  <script src="./js/embed.js"></script>
+  <script src="./js/app.js"></script>
+  <script>
+    const UPGRADE_ABI = [
+      "function owner() view returns (address)",
+      "function implementation() view returns (address)",
+      "function upgradeTo(address newImplementation)",
+      "function upgradeToAndCall(address newImplementation, bytes data)",
+      "event Upgraded(address indexed implementation)"
+    ];
+
+    const { $, log, connect, setVault, getVault, short } = APP;
+
+    function upgradeEnabled() {
+      $("btnUpgrade").disabled = !$("ckUpgrade").checked;
+    }
+    $("ckUpgrade").onchange = upgradeEnabled;
+
+    document.addEventListener("DOMContentLoaded", () => {
+      const v = getVault();
+      if (v) $("proxyInput").value = v;
+    });
+
+    $("btnSaveProxy").onclick = () => {
+      try {
+        const addr = ethers.getAddress(($("proxyInput").value || "").trim());
+        setVault(addr);
+        log("Vault (proxy) saved: " + addr, "ok");
+      } catch (e) {
+        log(e.message || String(e), "err");
+      }
+    };
+
+    $("btnReadImpl").onclick = async () => {
+      try {
+        if (!APP.provider && !window.ethereum) throw new Error("Connect wallet or use a browser with MetaMask");
+        if (!APP.account) await connect();
+        const proxy = ethers.getAddress(($("proxyInput").value || getVault() || "").trim());
+        setVault(proxy);
+        const c = new ethers.Contract(proxy, UPGRADE_ABI, APP.provider);
+        let impl = "—";
+        let owner = "—";
+        try {
+          impl = await c.implementation();
+        } catch {
+          const slot = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc";
+          const raw = await APP.provider.getStorage(proxy, slot);
+          impl = ethers.getAddress("0x" + raw.slice(26));
+        }
+        try {
+          owner = await c.owner();
+        } catch {
+          owner = "(not readable — may be non-upgradeable vault)";
+        }
+        $("currentImpl").textContent = impl;
+        $("ownerStat").textContent = owner.startsWith("0x") ? short(owner) : owner;
+        log("Implementation: " + impl, "ok");
+        log("Owner: " + owner, "ok");
+      } catch (e) {
+        log(e.shortMessage || e.message || String(e), "err");
+      }
+    };
+
+    $("btnUpgrade").onclick = async () => {
+      try {
+        if (!$("ckUpgrade").checked) throw new Error("Confirm the checkbox first");
+        await connect();
+        const gap = await APP.checkNonceGap();
+        if (gap > 0) throw new Error("Pending nonce gap > 0 — wait before upgrading");
+
+        const proxy = ethers.getAddress(($("proxyInput").value || getVault() || "").trim());
+        const newImpl = ethers.getAddress(($("newImpl").value || "").trim());
+        setVault(proxy);
+
+        const c = new ethers.Contract(proxy, UPGRADE_ABI, APP.signer);
+        const owner = await c.owner();
+        if (owner.toLowerCase() !== APP.account.toLowerCase()) {
+          throw new Error("Connected wallet is not the owner (" + owner + ")");
+        }
+
+        const data = ($("callData").value || "").trim();
+        let tx;
+        if (data && data !== "0x") {
+          log("Calling upgradeToAndCall…");
+          tx = await c.upgradeToAndCall(newImpl, data);
+        } else {
+          log("Calling upgradeTo…");
+          tx = await c.upgradeTo(newImpl);
+        }
+        log("Tx: " + tx.hash);
+        await tx.wait();
+        log("Upgrade confirmed", "ok");
+        $("btnReadImpl").click();
+      } catch (e) {
+        log(e.shortMessage || e.message || String(e), "err");
+      }
+    };
+  </script>
+</body>
+</html>
